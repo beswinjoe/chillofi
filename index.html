@@ -1,0 +1,1912 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>ChillLofi — A Late Night Listening Room</title>
+  <meta name="description"
+    content="ChillLofi — an immersive lo-fi listening experience. Enter the cozy rainy-night room, press play, and drift into warm ambient music.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .volume-osd {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.9);
+      background: var(--glass-panel);
+      backdrop-filter: blur(12px) saturate(150%);
+      padding: 24px 32px;
+      border-radius: 20px;
+      border: 1px solid var(--border-glow);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s var(--ease-smooth), transform 0.3s var(--ease-spring);
+      z-index: 1000;
+    }
+
+    .volume-osd.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .volume-osd i {
+      font-size: 48px;
+      color: var(--fg);
+      text-shadow: 0 0 16px rgba(255, 255, 255, 0.2);
+    }
+
+    .osd-bar {
+      width: 120px;
+      height: 8px;
+      background: var(--glass);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .osd-fill {
+      height: 100%;
+      background: var(--fg);
+      width: 60%;
+      transition: width 0.1s ease;
+    }
+
+    /* ========================================
+     Design Tokens
+     ======================================== */
+    :root {
+      --bg: #0a0a0f;
+      --fg: #f0e8d8;
+      --muted: rgba(240, 232, 216, 0.5);
+      --accent: #d4a853;
+      --accent-warm: #e8c06a;
+      --accent-glow: rgba(212, 168, 83, 0.4);
+      --glass: rgba(12, 10, 18, 0.35);
+      --glass-strong: rgba(12, 10, 18, 0.55);
+      --glass-panel: rgba(15, 12, 22, 0.65);
+      --border: rgba(212, 168, 83, 0.1);
+      --border-hover: rgba(212, 168, 83, 0.3);
+      --border-glow: rgba(212, 168, 83, 0.5);
+      --shadow-deep: rgba(0, 0, 0, 0.6);
+      --font-display: 'Playfair Display', 'Roboto', serif;
+      --font-body: 'DM Sans', 'Roboto', sans-serif;
+      --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* ========================================
+     Reset & Base
+     ======================================== */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-weight: 300;
+      cursor: default;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ========================================
+     Video Background
+     ======================================== */
+    .video-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .video-bg video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: brightness(0.75) saturate(1.15) contrast(1.05);
+      transition: filter 2s ease, transform 0.1s;
+      transform: translateZ(0);
+      will-change: filter, transform;
+    }
+
+    .video-bg.ambient-active video {
+      filter: brightness(0.6) saturate(1.3) contrast(1.1) blur(3px);
+    }
+
+    /* Disable transitions while resizing to prevent black screen flashes */
+    body.is-resizing *,
+    body.is-resizing *::before,
+    body.is-resizing *::after {
+      transition: none !important;
+    }
+
+    /* ========================================
+     Cinematic Overlays
+     ======================================== */
+    .overlay-dark {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background:
+        radial-gradient(ellipse at 50% 80%, rgba(180, 120, 40, 0.06) 0%, transparent 55%),
+        radial-gradient(ellipse at 20% 50%, rgba(212, 168, 83, 0.03) 0%, transparent 40%),
+        linear-gradient(180deg,
+          rgba(6, 5, 10, 0.45) 0%,
+          rgba(6, 5, 10, 0.15) 30%,
+          rgba(6, 5, 10, 0.08) 50%,
+          rgba(6, 5, 10, 0.25) 75%,
+          rgba(6, 5, 10, 0.65) 100%);
+      pointer-events: none;
+    }
+
+    .overlay-vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background: radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.5) 100%);
+      pointer-events: none;
+    }
+
+    /* Rain reflection shimmer */
+    .overlay-rain-reflect {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 30%;
+      z-index: 1;
+      background: linear-gradient(180deg, transparent, rgba(120, 160, 200, 0.02) 50%, rgba(120, 160, 200, 0.04));
+      pointer-events: none;
+      animation: rain-shimmer 8s ease-in-out infinite;
+    }
+
+    @keyframes rain-shimmer {
+
+      0%,
+      100% {
+        opacity: 0.5;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
+    /* Ambient warm glow */
+    .overlay-glow {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 2s ease;
+    }
+
+    .overlay-glow.visible {
+      opacity: 1;
+    }
+
+    .overlay-glow::before {
+      content: '';
+      position: absolute;
+      bottom: -10%;
+      left: 10%;
+      width: 50%;
+      height: 60%;
+      background: radial-gradient(ellipse, rgba(255, 170, 70, 0.08) 0%, transparent 70%);
+      animation: glow-pulse 6s ease-in-out infinite;
+    }
+
+    .overlay-glow::after {
+      content: '';
+      position: absolute;
+      top: 20%;
+      right: 5%;
+      width: 35%;
+      height: 40%;
+      background: radial-gradient(ellipse, rgba(212, 168, 83, 0.04) 0%, transparent 60%);
+      animation: glow-pulse 8s ease-in-out infinite 2s;
+    }
+
+    @keyframes glow-pulse {
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 0.6;
+      }
+
+      50% {
+        transform: scale(1.1);
+        opacity: 1;
+      }
+    }
+
+    /* Floating dust particles canvas */
+    #dustCanvas {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* ========================================
+     Welcome Screen
+     ======================================== */
+    .welcome {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      transition: opacity 1.4s ease, visibility 1.4s ease;
+    }
+
+    .welcome.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .welcome-ambient {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 30% 60%, rgba(212, 168, 83, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 40%, rgba(180, 130, 60, 0.04) 0%, transparent 50%);
+      animation: welcome-glow 8s ease-in-out infinite;
+    }
+
+    @keyframes welcome-glow {
+
+      0%,
+      100% {
+        opacity: 0.5;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
+    .welcome-content {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      animation: welcome-fade-in 1.5s ease forwards;
+    }
+
+    @keyframes welcome-fade-in {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .welcome-tagline {
+      font-family: var(--font-body);
+      font-size: 11px;
+      letter-spacing: 0.5em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+      opacity: 0.7;
+    }
+
+    .welcome-brand {
+      font-family: var(--font-display);
+      font-size: clamp(42px, 8vw, 72px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+      margin-bottom: 12px;
+      line-height: 1;
+    }
+
+    .welcome-sub {
+      font-size: 14px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      margin-bottom: 48px;
+      max-width: 320px;
+      line-height: 1.6;
+    }
+
+    .welcome-enter {
+      position: relative;
+      padding: 16px 48px;
+      border-radius: 100px;
+      border: 1px solid var(--border-hover);
+      background: rgba(212, 168, 83, 0.06);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--accent-warm);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 400;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.5s var(--ease-smooth);
+      overflow: hidden;
+    }
+
+    .welcome-enter::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: linear-gradient(135deg, transparent 30%, rgba(212, 168, 83, 0.15) 50%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    .welcome-enter:hover {
+      border-color: var(--border-glow);
+      background: rgba(212, 168, 83, 0.1);
+      letter-spacing: 0.25em;
+      box-shadow: 0 0 40px rgba(212, 168, 83, 0.15), inset 0 0 20px rgba(212, 168, 83, 0.05);
+    }
+
+    .welcome-enter:hover::before {
+      opacity: 1;
+    }
+
+    /* ========================================
+     Navigation — Logo only
+     ======================================== */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 20;
+      padding: 32px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+
+    .logo-text {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-size: 24px;
+      letter-spacing: 0.02em;
+      color: var(--fg);
+      text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
+      user-select: none;
+    }
+
+    .nav-hint {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      opacity: 0.6;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-hint kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.05);
+      font-family: var(--font-body);
+      font-size: 10px;
+      color: var(--muted);
+      min-width: 20px;
+    }
+
+    /* ========================================
+     Hero CTA Buttons — Glassmorphism
+     ======================================== */
+    .hero-actions {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      text-align: center;
+      margin-bottom: 8px;
+      text-shadow: 0 4px 30px rgba(0, 0, 0, 0.6);
+      line-height: 1.1;
+    }
+
+    .hero-sub {
+      font-size: 14px;
+      color: var(--muted);
+      text-align: center;
+      margin-bottom: 24px;
+      letter-spacing: 0.06em;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .glass-btn {
+      position: relative;
+      padding: 14px 32px;
+      border-radius: 60px;
+      border: 1px solid var(--border);
+      background: var(--glass);
+      backdrop-filter: blur(24px) saturate(140%);
+      -webkit-backdrop-filter: blur(24px) saturate(140%);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 400;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.4s var(--ease-smooth);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    .glass-btn i {
+      font-size: 12px;
+      color: var(--accent);
+      transition: transform 0.4s var(--ease-spring), color 0.3s ease;
+    }
+
+    /* Animated shimmer border */
+    .glass-btn::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: conic-gradient(from 0deg, transparent 0%, rgba(212, 168, 83, 0.3) 10%, transparent 20%);
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      animation: btn-shimmer-rotate 4s linear infinite;
+      z-index: -1;
+    }
+
+    @keyframes btn-shimmer-rotate {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* Inner glow layer */
+    .glass-btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: radial-gradient(circle at 50% 0%, rgba(212, 168, 83, 0.08) 0%, transparent 60%);
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .glass-btn:hover {
+      border-color: var(--border-glow);
+      background: rgba(212, 168, 83, 0.08);
+      transform: translateY(-2px);
+      box-shadow:
+        0 8px 30px rgba(0, 0, 0, 0.4),
+        0 0 20px var(--accent-glow),
+        inset 0 1px 0 rgba(212, 168, 83, 0.15);
+      color: var(--accent-warm);
+      letter-spacing: 0.12em;
+    }
+
+    .glass-btn:hover i {
+      transform: scale(1.2);
+    }
+
+    .glass-btn:hover::before {
+      opacity: 1;
+    }
+
+    .glass-btn:hover::after {
+      opacity: 1;
+    }
+
+    .glass-btn:active {
+      transform: translateY(0);
+      transition-duration: 0.1s;
+    }
+
+    .glass-btn.primary {
+      border-color: var(--border-hover);
+      background: rgba(212, 168, 83, 0.1);
+      color: var(--accent-warm);
+    }
+
+    .glass-btn.primary:hover {
+      background: rgba(212, 168, 83, 0.15);
+      box-shadow:
+        0 8px 40px rgba(212, 168, 83, 0.2),
+        0 0 30px rgba(212, 168, 83, 0.15),
+        inset 0 1px 0 rgba(212, 168, 83, 0.2);
+    }
+
+    /* ========================================
+     Now Playing — Center text
+     ======================================== */
+    .now-playing {
+      position: fixed;
+      bottom: 180px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      text-align: center;
+      transition: opacity 0.8s ease, transform 0.8s ease;
+      pointer-events: none;
+      max-width: 80vw;
+      opacity: 0;
+    }
+
+    .now-playing.visible {
+      opacity: 1;
+    }
+
+    .now-playing .status {
+      font-size: 10px;
+      letter-spacing: 0.45em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+      opacity: 0.8;
+    }
+
+    .now-playing .title {
+      font-family: var(--font-display);
+      font-size: clamp(26px, 3.5vw, 42px);
+      font-weight: 300;
+      letter-spacing: -0.01em;
+      line-height: 1;
+      margin: 0 0 8px 0;
+      text-shadow: 0 2px 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .now-playing .artist {
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    /* ========================================
+     Floating Glass Player (Dock Style)
+     ======================================== */
+    .player-panel {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 18;
+      display: flex;
+      gap: 16px;
+      transition: opacity 0.8s ease, transform 0.8s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .player-panel.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .dock-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .dock-label {
+      font-size: 13px;
+      color: var(--fg);
+      margin-left: 12px;
+      font-weight: 500;
+    }
+
+    .dock-pill {
+      display: flex;
+      align-items: center;
+      background: rgba(20, 20, 22, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 40px;
+      padding: 8px 12px;
+      gap: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .dock-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: #a0a0a0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: all 0.2s var(--ease-smooth);
+    }
+
+    .dock-btn:hover {
+      color: var(--fg);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .dock-btn.play-main {
+      color: var(--fg);
+    }
+
+    .dock-text {
+      font-size: 14px;
+      color: var(--fg);
+      font-weight: 400;
+      margin: 0 8px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ========================================
+     Playlist FAB & Panel
+     ======================================== */
+    .playlist-fab {
+      position: fixed;
+      bottom: 44px;
+      right: 32px;
+      z-index: 18;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--glass-strong);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--fg);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      transition: all 0.3s var(--ease-smooth);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      opacity: 0;
+    }
+
+    .playlist-fab.visible {
+      opacity: 1;
+    }
+
+    .playlist-fab:hover {
+      border-color: var(--border-hover);
+      background: rgba(212, 168, 83, 0.08);
+      color: var(--accent);
+      transform: scale(1.08);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4), 0 0 12px var(--accent-glow);
+    }
+
+    .playlist-fab .count {
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      background: var(--accent);
+      color: #0a0a0f;
+      font-size: 9px;
+      font-weight: 600;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Panel */
+    .playlist-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 380px;
+      max-width: 90vw;
+      z-index: 30;
+      background: rgba(10, 8, 16, 0.88);
+      backdrop-filter: blur(50px) saturate(140%);
+      -webkit-backdrop-filter: blur(50px) saturate(140%);
+      border-left: 1px solid var(--border);
+      transform: translateX(100%);
+      transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+      display: flex;
+      flex-direction: column;
+      padding: 36px 24px;
+    }
+
+    .playlist-panel.open {
+      transform: translateX(0);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 28px;
+    }
+
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 400;
+    }
+
+    .panel-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+
+    .panel-close:hover {
+      color: var(--accent);
+    }
+
+    .panel-section-label {
+      font-size: 10px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* Mood chips */
+    .mood-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+
+    .mood-chip {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font-size: 12px;
+      text-align: left;
+      transition: all 0.3s;
+      font-family: inherit;
+    }
+
+    .mood-chip:hover {
+      border-color: var(--border-hover);
+      background: rgba(212, 168, 83, 0.04);
+    }
+
+    .mood-chip.active {
+      border-color: rgba(212, 168, 83, 0.35);
+      background: rgba(212, 168, 83, 0.08);
+      color: var(--accent);
+    }
+
+    .mood-chip .label {
+      display: block;
+      font-weight: 400;
+      margin-bottom: 2px;
+    }
+
+    .mood-chip .sub {
+      display: block;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* Track list */
+    .track-list {
+      flex: 1;
+      overflow-y: auto;
+      margin: 0 -8px;
+      padding: 0 8px;
+    }
+
+    .track-list::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    .track-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .track-list::-webkit-scrollbar-thumb {
+      background: rgba(212, 168, 83, 0.15);
+      border-radius: 2px;
+    }
+
+    .track-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-bottom: 2px;
+      border: 1px solid transparent;
+    }
+
+    .track-item:hover {
+      background: rgba(212, 168, 83, 0.04);
+    }
+
+    .track-item.active {
+      background: rgba(212, 168, 83, 0.08);
+      border-color: rgba(212, 168, 83, 0.15);
+    }
+
+    .track-num {
+      font-size: 12px;
+      color: var(--muted);
+      width: 18px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .track-item.active .track-num {
+      color: var(--accent);
+    }
+
+    .track-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .track-info .t-name {
+      font-size: 14px;
+      color: var(--fg);
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .track-info .t-artist {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    .track-duration {
+      font-size: 11px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .track-item.active .track-duration {
+      color: var(--accent);
+    }
+
+    /* ========================================
+     Toast
+     ======================================== */
+    .toast {
+      position: fixed;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      z-index: 60;
+      padding: 12px 22px;
+      border-radius: 100px;
+      font-size: 13px;
+      color: var(--fg);
+      background: var(--glass-strong);
+      backdrop-filter: blur(30px);
+      -webkit-backdrop-filter: blur(30px);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 32px var(--shadow-deep);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.4s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .toast i {
+      color: var(--accent);
+    }
+
+    /* ========================================
+     Idle auto-hide
+     ======================================== */
+    .idle .nav {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+
+    .idle .player-panel {
+      opacity: 0 !important;
+      transform: translateX(-50%) translateY(20px);
+    }
+
+    .idle .now-playing {
+      opacity: 0 !important;
+      transform: translateX(-50%) translateY(10px);
+    }
+
+    .idle .hero-actions {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.98);
+    }
+
+    .idle .playlist-fab {
+      opacity: 0 !important;
+    }
+
+    /* ========================================
+     Responsive
+     ======================================== */
+    @media (max-width: 768px) {
+      .nav {
+        padding: 20px 24px;
+      }
+
+      .logo-text {
+        font-size: 20px;
+      }
+
+      .nav-hint {
+        display: none;
+      }
+
+      .hero-title {
+        font-size: clamp(26px, 6vw, 40px);
+      }
+
+      .player-panel {
+        width: 94vw;
+        padding: 16px 18px 14px;
+        bottom: 16px;
+      }
+
+      .vol-wrap {
+        display: none;
+      }
+
+      .ctrl-btn.play-main {
+        width: 46px;
+        height: 46px;
+        font-size: 14px;
+      }
+
+      .ctrl-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 12px;
+      }
+
+      .playlist-fab {
+        bottom: 24px;
+        right: 16px;
+      }
+
+      .btn-group {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .glass-btn {
+        padding: 12px 28px;
+        font-size: 12px;
+      }
+
+      .now-playing {
+        bottom: 150px;
+      }
+
+      .hero-actions {
+        top: 45%;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .player-panel {
+        border-radius: 16px;
+      }
+
+      .progress-time {
+        display: none;
+      }
+
+      .player-track-mood {
+        display: none;
+      }
+    }
+
+    /* ========================================
+     Reduced motion
+     ======================================== */
+    @media (prefers-reduced-motion: reduce) {
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+  <!-- ======== Welcome Overlay ======== -->
+  <div class="welcome" id="welcome">
+    <div class="welcome-ambient"></div>
+    <div class="welcome-content">
+      <div class="welcome-tagline">A Late Night Listening Room</div>
+      <div class="welcome-brand">ChillLofi</div>
+      <div class="welcome-sub">Press play. Close your eyes. Let the rain do the rest.</div>
+      <button class="welcome-enter" id="enterBtn">Enter the Room</button>
+    </div>
+  </div>
+
+  <!-- ======== Video Background ======== -->
+  <div class="video-bg" id="videoBg">
+    <video id="bgVideo" autoplay loop muted playsinline src="rainy-cat-cafe.mp4"></video>
+  </div>
+
+  <!-- ======== Cinematic Overlays ======== -->
+  <div class="overlay-dark"></div>
+  <div class="overlay-vignette"></div>
+  <div class="overlay-rain-reflect"></div>
+  <div class="overlay-glow" id="overlayGlow"></div>
+  <canvas id="dustCanvas"></canvas>
+
+  <!-- ======== Navigation ======== -->
+  <nav class="nav" id="nav">
+    <div class="logo-text">ChillLofi</div>
+    <div class="nav-hint">
+      <kbd>Space</kbd> Play &nbsp; <kbd>F</kbd> Fullscreen &nbsp; <kbd>L</kbd> Playlist
+    </div>
+  </nav>
+
+  <!-- ======== Hero Actions ======== -->
+  <div class="hero-actions" id="heroActions">
+    <h1 class="hero-title">Your Rainy Night<br>Listening Room</h1>
+    <p class="hero-sub">Generative lo-fi · Always unique · Never ends</p>
+    <div class="btn-group">
+      <button class="glass-btn primary" id="startListeningBtn">
+        <i class="fas fa-headphones"></i>
+        <span>Start Listening</span>
+      </button>
+      <button class="glass-btn" id="openPlaylistBtn">
+        <i class="fas fa-list"></i>
+        <span>Open Playlist</span>
+      </button>
+      <button class="glass-btn" id="ambientModeBtn">
+        <i class="fas fa-moon"></i>
+        <span>Ambient Mode</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ======== Now Playing ======== -->
+  <div class="now-playing" id="nowPlaying">
+    <div class="status" id="npStatus">Now Playing</div>
+    <h2 class="title" id="npTitle">Midnight Study</h2>
+    <div class="artist" id="npArtist">ChillLofi Sessions · Generative</div>
+  </div>
+
+  <!-- ======== Floating Glass Player ======== -->
+  <div class="player-panel" id="playerPanel">
+    <!-- Hidden elements required by JS -->
+    <div style="display: none;" aria-hidden="true">
+      <input type="range" class="vol-slider" id="volSlider" min="0" max="100" value="60">
+
+      <div id="playerTrackName"></div>
+      <div id="playerTrackArtist"></div>
+      <div id="playerMood"></div>
+      <div id="progressCurrent"></div>
+      <div id="progressBar">
+        <div id="progressFill"></div>
+      </div>
+      <div id="eqMini"></div>
+    </div>
+
+    <div class="dock-section">
+      <div class="dock-label">Music</div>
+      <div class="dock-pill">
+        <button class="dock-btn" id="prevBtn"><i class="fas fa-backward-step"></i></button>
+        <button class="dock-btn play-main" id="playBtn"><i class="fas fa-play" id="playIcon"></i></button>
+        <button class="dock-btn" id="stopBtn"><i class="fas fa-stop"></i></button>
+        <button class="dock-btn" id="nextBtn"><i class="fas fa-forward-step"></i></button>
+        <button class="dock-btn" id="volBtn"><i class="fas fa-volume-low" id="volIcon"></i></button>
+        <button class="dock-btn" id="shuffleBtn"><i class="fas fa-shuffle"></i></button>
+        <button class="dock-btn" id="heartBtn"><i class="far fa-heart" id="heartIcon"></i></button>
+        <button class="dock-btn" id="nextPlaylistBtn"><i class="fas fa-list-check"></i></button>
+        <button class="dock-btn" id="dockPlaylistBtn"><i class="fas fa-bars-staggered"></i></button>
+      </div>
+    </div>
+
+    <div class="dock-section">
+      <div class="dock-label">System</div>
+      <div class="dock-pill">
+        <div class="dock-text" id="dockClock">12:00 PM</div>
+        <button class="dock-btn" id="fsBtn"><i class="fas fa-expand"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== Volume OSD ======== -->
+  <div class="volume-osd" id="volumeOsd">
+    <i class="fas fa-volume-low" id="osdIcon"></i>
+    <div class="osd-bar">
+      <div class="osd-fill" id="osdFill" style="width: 60%;"></div>
+    </div>
+  </div>
+
+  <!-- ======== Playlist FAB ======== -->
+  <button class="playlist-fab" id="playlistFab" title="Playlist">
+    <i class="fas fa-list-ul"></i>
+    <span class="count" id="trackCount">8</span>
+  </button>
+
+  <!-- ======== Playlist Panel ======== -->
+  <aside class="playlist-panel" id="playlistPanelAside">
+    <div class="panel-header">
+      <div>
+        <div class="panel-section-label">Your Room</div>
+        <div class="panel-title">Tonight's Selection</div>
+      </div>
+      <button class="panel-close" id="panelClose"><i class="fas fa-times"></i></button>
+    </div>
+
+    <div class="panel-section-label">Mood</div>
+    <div class="mood-grid" id="moodGrid">
+      <button class="mood-chip active" data-mood="study"><span class="label">Study</span><span class="sub">Focus ·
+          Calm</span></button>
+      <button class="mood-chip" data-mood="sleep"><span class="label">Sleep</span><span class="sub">Soft ·
+          Drift</span></button>
+      <button class="mood-chip" data-mood="rain"><span class="label">Rainy</span><span
+          class="sub">Melancholic</span></button>
+      <button class="mood-chip" data-mood="focus"><span class="label">Focus</span><span class="sub">Steady ·
+          Warm</span></button>
+    </div>
+
+    <div class="panel-section-label">Tracks · <span id="trackListCount">8</span></div>
+    <div class="track-list" id="trackList"></div>
+  </aside>
+
+  <!-- ======== Toast ======== -->
+  <div class="toast" id="toast">
+    <i class="fas fa-check-circle"></i>
+    <span id="toastMsg">Done</span>
+  </div>
+
+  <script>
+    /* ============================================================
+       ChillLofi — Immersive Lo-fi Listening Room
+       - Full-screen video background with cinematic overlays
+       - Floating dust particles (Canvas 2D)
+       - Web Audio generative lo-fi engine
+       - Premium glassmorphism UI
+       ============================================================ */
+
+    /* ========== Floating Dust Particles ========== */
+    class DustSystem {
+      constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.particles = [];
+        this.resize();
+        this.init();
+        window.addEventListener('resize', () => this.resize());
+      }
+
+      resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        this.dpr = dpr;
+        this.W = window.innerWidth;
+        this.H = window.innerHeight;
+        this.canvas.width = this.W * dpr;
+        this.canvas.height = this.H * dpr;
+        this.canvas.style.width = this.W + 'px';
+        this.canvas.style.height = this.H + 'px';
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      init() {
+        this.particles = [];
+        for (let i = 0; i < 80; i++) {
+          this.particles.push({
+            x: Math.random() * this.W,
+            y: Math.random() * this.H,
+            size: 0.3 + Math.random() * 1.8,
+            speedX: (Math.random() - 0.5) * 0.2,
+            speedY: -0.04 - Math.random() * 0.12,
+            opacity: 0.05 + Math.random() * 0.25,
+            phase: Math.random() * Math.PI * 2,
+            warm: Math.random() > 0.4
+          });
+        }
+      }
+
+      draw(time) {
+        this.ctx.clearRect(0, 0, this.W, this.H);
+        this.particles.forEach(p => {
+          p.x += p.speedX + Math.sin(time * 0.001 + p.phase) * 0.08;
+          p.y += p.speedY;
+
+          if (p.y < -10) { p.y = this.H + 10; p.x = Math.random() * this.W; }
+          if (p.x < -10) p.x = this.W + 10;
+          if (p.x > this.W + 10) p.x = -10;
+
+          const flicker = 0.6 + 0.4 * Math.sin(time * 0.002 + p.phase);
+          const color = p.warm
+            ? `rgba(255, 220, 170, ${p.opacity * flicker})`
+            : `rgba(200, 210, 230, ${p.opacity * flicker * 0.6})`;
+
+          this.ctx.fillStyle = color;
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          this.ctx.fill();
+        });
+      }
+
+      start() {
+        const loop = (t) => {
+          this.draw(t);
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+      }
+    }
+
+    /* ========== Backend Audio Engine ========== */
+    let TRACKS = [];
+    const audio = new Audio();
+    audio.crossOrigin = "anonymous";
+
+    // Helper: apply a playlist response from backend
+    function applyPlaylist(data, autoPlay = false) {
+      TRACKS = data.tracks || data;
+      currentMood = data.mood || (TRACKS[0] && TRACKS[0].mood) || 'study';
+      
+      // Update mood chips to reflect current mood
+      document.querySelectorAll('.mood-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.mood === currentMood);
+      });
+      
+      renderTrackList();
+      if (TRACKS.length > 0) {
+        selectTrack(0, autoPlay);
+      }
+      
+      // Swap background video
+      if (data.video && bgVideo) {
+        bgVideo.src = data.video;
+        bgVideo.load();
+        bgVideo.play();
+      }
+    }
+
+    async function fetchPlaylist() {
+      try {
+        const res = await fetch('/api/playlist');
+        const data = await res.json();
+        applyPlaylist(data, false);
+      } catch (err) {
+        console.error('Error fetching playlist:', err);
+        showToast('Failed to load playlist from backend');
+      }
+    }
+
+
+    /* ========== Smooth Audio Fading ========== */
+    function fadeAudio(targetVolume, durationMs = 300, callback = null) {
+      const steps = 20;
+      const stepTime = durationMs / steps;
+      const currentVol = audio.volume;
+      const volumeStep = (targetVolume - currentVol) / steps;
+      let currentStep = 0;
+
+      clearInterval(audio.fadeTimer);
+      audio.fadeTimer = setInterval(() => {
+        currentStep++;
+        let newVol = currentVol + (volumeStep * currentStep);
+        if (newVol < 0) newVol = 0;
+        if (newVol > 1) newVol = 1;
+        audio.volume = newVol;
+
+        if (currentStep >= steps) {
+          clearInterval(audio.fadeTimer);
+          audio.volume = targetVolume;
+          if (callback) callback();
+        }
+      }, stepTime);
+    }
+
+    audio.addEventListener('ended', () => {
+      nextBtn.click();
+    });
+
+    audio.addEventListener('timeupdate', () => {
+      if (!audio.duration) return;
+      const curr = Math.floor(audio.currentTime);
+      const min = Math.floor(curr / 60);
+      const sec = curr % 60;
+      progressCurrent.textContent = `${min}:${sec.toString().padStart(2, '0')}`;
+      const pct = (audio.currentTime / audio.duration) * 100;
+      progressFill.style.width = pct + '%';
+    });
+
+    /* ========== Dust Particles ========== */
+    const dustSystem = new DustSystem(document.getElementById('dustCanvas'));
+    dustSystem.start();
+
+    /* ========== UI Wiring ========== */
+    const $ = id => document.getElementById(id);
+    const welcome = $('welcome');
+    const enterBtn = $('enterBtn');
+    const playBtn = $('playBtn');
+    const playIcon = $('playIcon');
+    const prevBtn = $('prevBtn');
+    const nextBtn = $('nextBtn');
+    const volSlider = $('volSlider');
+    const volBtn = $('volBtn');
+    const volIcon = $('volIcon');
+    const fsBtn = $('fsBtn');
+    const playlistFab = $('playlistFab');
+    const playlistPanelAside = $('playlistPanelAside');
+    const panelClose = $('panelClose');
+    const trackListEl = $('trackList');
+    const moodGrid = $('moodGrid');
+    const eqMini = $('eqMini');
+    const npTitle = $('npTitle');
+    const npArtist = $('npArtist');
+    const npStatus = $('npStatus');
+    const nowPlaying = $('nowPlaying');
+    const playerPanel = $('playerPanel');
+    const playerTrackName = $('playerTrackName');
+    const playerTrackArtist = $('playerTrackArtist');
+    const playerMood = $('playerMood');
+    const progressFill = $('progressFill');
+    const progressCurrent = $('progressCurrent');
+    const heroActions = $('heroActions');
+    const startListeningBtn = $('startListeningBtn');
+    const openPlaylistBtn = $('openPlaylistBtn');
+    const ambientModeBtn = $('ambientModeBtn');
+    const overlayGlow = $('overlayGlow');
+    const videoBg = $('videoBg');
+    const bgVideo = document.getElementById('bgVideo');
+    const toast = $('toast');
+    const toastMsg = $('toastMsg');
+
+    let currentTrack = 0;
+    let currentMood = 'study';
+    let isPlaying = false;
+    let isAmbientMode = false;
+    let progressTimer = null;
+    let progressSeconds = 0;
+    let hasEntered = false;
+
+    /* ========== Enter the room ========== */
+    enterBtn.addEventListener('click', () => {
+      welcome.classList.add('hidden');
+      hasEntered = true;
+
+      // Reveal elements with staggered animations
+      setTimeout(() => overlayGlow.classList.add('visible'), 300);
+      setTimeout(() => heroActions.style.opacity = '1', 500);
+      resetIdle();
+    });
+
+    /* ========== Start Listening ========== */
+    startListeningBtn.addEventListener('click', () => {
+      startPlayback();
+    });
+
+    function startPlayback() {
+      if (!isPlaying) {
+        const targetVol = parseInt(volSlider.value) / 100;
+        audio.volume = 0;
+        audio.play().catch(() => {});
+        fadeAudio(targetVol, 500);
+        isPlaying = true;
+        playIcon.classList.remove('fa-play');
+        playIcon.classList.add('fa-pause');
+        eqMini.classList.remove('paused');
+        npStatus.textContent = 'Now Playing';
+      }
+
+      heroActions.style.opacity = '0';
+      heroActions.style.pointerEvents = 'none';
+
+      setTimeout(() => {
+        nowPlaying.classList.add('visible');
+        playerPanel.classList.add('visible');
+        playlistFab.classList.add('visible');
+      }, 400);
+
+      resetIdle();
+    }
+
+    /* ========== Open Playlist ========== */
+    openPlaylistBtn.addEventListener('click', () => {
+      startPlayback();
+      setTimeout(() => {
+        playlistPanelAside.classList.add('open');
+      }, 600);
+    });
+
+    /* ========== Ambient Mode ========== */
+    ambientModeBtn.addEventListener('click', () => {
+      isAmbientMode = !isAmbientMode;
+      videoBg.classList.toggle('ambient-active', isAmbientMode);
+
+      if (isAmbientMode) {
+        showToast('Ambient mode — relax and drift');
+        if (!isPlaying) startPlayback();
+        // Hide all UI for pure ambient
+        document.body.classList.add('idle');
+      } else {
+        showToast('Ambient mode off');
+        document.body.classList.remove('idle');
+      }
+    });
+
+    /* ========== Play/Pause ========== */
+    playBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        isPlaying = false;
+        fadeAudio(0, 300, () => audio.pause());
+        playIcon.classList.remove('fa-pause');
+        playIcon.classList.add('fa-play');
+        eqMini.classList.add('paused');
+        npStatus.textContent = 'Paused';
+      } else {
+        const targetVol = parseInt(volSlider.value) / 100;
+        audio.volume = 0;
+        audio.play().catch(() => {});
+        fadeAudio(targetVol, 300);
+        isPlaying = true;
+        playIcon.classList.remove('fa-play');
+        playIcon.classList.add('fa-pause');
+        eqMini.classList.remove('paused');
+        npStatus.textContent = 'Now Playing';
+      }
+      resetIdle();
+    });
+
+    /* ========== Prev / Next ========== */
+    prevBtn.addEventListener('click', () => {
+      currentTrack = (currentTrack - 1 + TRACKS.length) % TRACKS.length;
+      selectTrack(currentTrack);
+    });
+    nextBtn.addEventListener('click', () => {
+      currentTrack = (currentTrack + 1) % TRACKS.length;
+      selectTrack(currentTrack);
+    });
+
+    function selectTrack(i, autoPlay = true) {
+      currentTrack = i;
+      const t = TRACKS[i];
+      if (!t) return;
+
+      if (t.audioUrl.startsWith('http')) {
+        audio.src = t.audioUrl;
+      } else {
+        audio.src = t.audioUrl;
+      }
+
+      if (autoPlay) {
+        const targetVol = parseInt(volSlider.value) / 100;
+        audio.volume = 0;
+        audio.play().catch(() => {});
+        fadeAudio(targetVol, 400);
+        if (!isPlaying) {
+          isPlaying = true;
+          playIcon.classList.remove('fa-play');
+          playIcon.classList.add('fa-pause');
+          eqMini.classList.remove('paused');
+          npStatus.textContent = 'Now Playing';
+        }
+      }
+
+      updateHeartIcon();
+      npTitle.textContent = t.title;
+      npArtist.textContent = `${t.artist}`;
+      playerTrackName.textContent = t.title;
+      playerTrackArtist.textContent = t.artist;
+      playerMood.textContent = t.mood.charAt(0).toUpperCase() + t.mood.slice(1);
+
+      npTitle.style.opacity = 0;
+      npTitle.style.transform = 'translateY(8px)';
+      setTimeout(() => {
+        npTitle.style.transition = 'all 0.5s ease';
+        npTitle.style.opacity = 1;
+        npTitle.style.transform = 'translateY(0)';
+      }, 50);
+
+      progressFill.style.width = '0%';
+      progressCurrent.textContent = '0:00';
+
+      renderTrackList();
+      resetIdle();
+    }
+
+
+
+    /* ========== Volume ========== */
+    let osdTimer = null;
+    function showVolumeOsd(val) {
+      if (!osdFill || !osdIcon || !volumeOsd) return;
+      osdFill.style.width = val + '%';
+      if (val === 0) {
+        osdIcon.className = 'fas fa-volume-xmark';
+        volIcon.className = 'fas fa-volume-xmark';
+      } else if (val < 40) {
+        osdIcon.className = 'fas fa-volume-low';
+        volIcon.className = 'fas fa-volume-low';
+      } else {
+        osdIcon.className = 'fas fa-volume-high';
+        volIcon.className = 'fas fa-volume-high';
+      }
+
+      volumeOsd.classList.add('show');
+
+      // Icon pulse animation
+      volBtn.style.transform = 'scale(1.2)';
+      setTimeout(() => volBtn.style.transform = '', 150);
+
+      clearTimeout(osdTimer);
+      osdTimer = setTimeout(() => {
+        volumeOsd.classList.remove('show');
+      }, 1500);
+    }
+
+    volSlider.addEventListener('input', e => {
+      const val = parseInt(e.target.value);
+      audio.volume = val / 100;
+      showVolumeOsd(val);
+      resetIdle();
+    });
+
+    volBtn.addEventListener('click', () => {
+      let val;
+      if (parseInt(volSlider.value) > 0) {
+        volSlider._prev = volSlider.value;
+        val = 0;
+      } else {
+        val = volSlider._prev || 60;
+      }
+      volSlider.value = val;
+      audio.volume = val / 100;
+      showVolumeOsd(val);
+      resetIdle();
+    });
+
+
+    /* ========== Dock Buttons Wiring ========== */
+    const stopBtn = $('stopBtn');
+    const nextPlaylistBtn = $('nextPlaylistBtn');
+
+    if (stopBtn) {
+      stopBtn.addEventListener('click', () => {
+        if (isPlaying) {
+          isPlaying = false;
+          fadeAudio(0, 500, () => {
+            audio.pause();
+            audio.currentTime = 0;
+          });
+          playIcon.classList.remove('fa-pause');
+          playIcon.classList.add('fa-play');
+          eqMini.classList.add('paused');
+          npStatus.textContent = 'Stopped';
+        }
+      });
+    }
+
+    if (nextPlaylistBtn) {
+      nextPlaylistBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/playlist/next');
+          const data = await res.json();
+          applyPlaylist(data, true);
+          showToast(`Now playing: ${data.name || 'Next playlist'}`);
+          
+          // Animate icon
+          nextPlaylistBtn.querySelector('i').style.transform = 'scale(1.2)';
+          setTimeout(() => nextPlaylistBtn.querySelector('i').style.transform = '', 300);
+        } catch (e) {
+          showToast('Failed to change playlist');
+        }
+      });
+    }
+
+    const heartBtn = $('heartBtn');
+    const heartIcon = $('heartIcon');
+    const dockPlaylistBtn = $('dockPlaylistBtn');
+    const shuffleBtn = $('shuffleBtn');
+    const volumeOsd = $('volumeOsd');
+    const osdIcon = $('osdIcon');
+    const osdFill = $('osdFill');
+
+    if (heartBtn) {
+      heartBtn.addEventListener('click', async () => {
+        const t = TRACKS[currentTrack];
+        if (!t) return;
+        t.liked = !t.liked;
+
+        if (t.liked) {
+          heartIcon.classList.remove('far');
+          heartIcon.classList.add('fas');
+          heartIcon.style.color = 'var(--accent-warm)';
+          heartIcon.style.textShadow = '0 0 10px var(--accent-glow)';
+          showToast('Added to favorites');
+        } else {
+          heartIcon.classList.remove('fas');
+          heartIcon.classList.add('far');
+          heartIcon.style.color = '';
+          heartIcon.style.textShadow = '';
+          showToast('Removed from favorites');
+        }
+
+        try {
+          await fetch('/api/like', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trackId: t.id, liked: t.liked })
+          });
+        } catch (e) { console.error('Failed to save like state'); }
+      });
+    }
+
+    // Ensure the heart icon reflects current track on select
+    function updateHeartIcon() {
+      const t = TRACKS[currentTrack];
+      if (t && t.liked) {
+        heartIcon.classList.remove('far');
+        heartIcon.classList.add('fas');
+        heartIcon.style.color = 'var(--accent-warm)';
+        heartIcon.style.textShadow = '0 0 10px var(--accent-glow)';
+      } else if (t) {
+        heartIcon.classList.remove('fas');
+        heartIcon.classList.add('far');
+        heartIcon.style.color = '';
+        heartIcon.style.textShadow = '';
+      }
+    }
+
+    if (dockPlaylistBtn) dockPlaylistBtn.addEventListener('click', () => playlistFab.click());
+
+    if (shuffleBtn) {
+      shuffleBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/shuffle');
+          const data = await res.json();
+          applyPlaylist(data, true);
+          showToast('Playlist Shuffled!');
+
+          // Animate icon
+          shuffleBtn.querySelector('i').style.transform = 'rotate(180deg)';
+          setTimeout(() => shuffleBtn.querySelector('i').style.transform = '', 300);
+        } catch (e) {
+          showToast('Failed to shuffle playlist');
+        }
+      });
+    }
+
+
+    /* ========== Fullscreen ========== */
+    fsBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.();
+        fsBtn.querySelector('i').classList.replace('fa-expand', 'fa-compress');
+      } else {
+        document.exitFullscreen?.();
+        fsBtn.querySelector('i').classList.replace('fa-compress', 'fa-expand');
+      }
+      resetIdle();
+    });
+
+    /* ========== Playlist panel ========== */
+    playlistFab.addEventListener('click', () => {
+      playlistPanelAside.classList.toggle('open');
+      resetIdle();
+    });
+    panelClose.addEventListener('click', () => {
+      playlistPanelAside.classList.remove('open');
+    });
+
+    /* ========== Mood filter ========== */
+    moodGrid.addEventListener('click', async e => {
+      const chip = e.target.closest('.mood-chip');
+      if (!chip) return;
+      const mood = chip.dataset.mood;
+      
+      try {
+        const res = await fetch(`/api/playlist/${mood}`);
+        const data = await res.json();
+        applyPlaylist(data, true);
+        showToast(`Now playing: ${data.name || mood}`);
+      } catch (err) {
+        showToast('Failed to switch playlist');
+      }
+    });
+
+    /* ========== Track list rendering ========== */
+    function renderTrackList() {
+      trackListEl.innerHTML = '';
+      const countEl = document.getElementById('trackListCount');
+      if (countEl) countEl.textContent = TRACKS.length;
+      TRACKS.forEach((t, i) => {
+        const item = document.createElement('div');
+        item.className = 'track-item' + (i === currentTrack ? ' active' : '');
+        item.innerHTML = `
+      <div class="track-num">${i === currentTrack ? '<i class="fas fa-volume-low" style="font-size:10px"></i>' : (i + 1)}</div>
+      <div class="track-info">
+        <div class="t-name">${t.title}</div>
+        <div class="t-artist">${t.artist}</div>
+      </div>
+      <div class="track-duration" style="font-size: 10px; opacity: 0.7; background: var(--glass-strong); padding: 2px 6px; border-radius: 4px; color: var(--accent-warm);">LIVE</div>
+    `;
+        item.addEventListener('click', () => selectTrack(i));
+        trackListEl.appendChild(item);
+      });
+    }
+    renderTrackList();
+
+    /* ========== Toast ========== */
+    function showToast(msg) {
+      toastMsg.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(showToast.t);
+      showToast.t = setTimeout(() => toast.classList.remove('show'), 3500);
+    }
+
+    /* ========== Keyboard shortcuts ========== */
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (!hasEntered) {
+          enterBtn.click();
+          return;
+        }
+        if (!isPlaying && heroActions.style.opacity !== '0') {
+          startPlayback();
+        } else {
+          playBtn.click();
+        }
+      } else if (e.code === 'ArrowRight') {
+        nextBtn.click();
+      } else if (e.code === 'ArrowLeft') {
+        prevBtn.click();
+      } else if (e.key === 'f' || e.key === 'F') {
+        fsBtn.click();
+      } else if (e.key === 'l' || e.key === 'L') {
+        playlistFab.click();
+      } else if (e.key === 'a' || e.key === 'A') {
+        ambientModeBtn.click();
+      }
+      resetIdle();
+    });
+
+    /* ========== Idle auto-hide ========== */
+    let idleTimer = null;
+    function resetIdle() {
+      if (isAmbientMode) return;
+      document.body.classList.remove('idle');
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        document.body.classList.add('idle');
+      }, 2000);
+    }
+    document.addEventListener('mousemove', resetIdle);
+    document.addEventListener('touchstart', resetIdle);
+    playerPanel.addEventListener('mouseenter', () => document.body.classList.remove('idle'));
+    document.querySelector('.nav').addEventListener('mouseenter', () => document.body.classList.remove('idle'));
+
+    /* ========== Resize Throttle to prevent black screens ========== */
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      document.body.classList.add('is-resizing');
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        document.body.classList.remove('is-resizing');
+      }, 250);
+    });
+
+    /* ========== Initial volume ========== */
+    audio.volume = parseInt(volSlider.value) / 100;
+    // Fetch playlist on load
+    fetchPlaylist();
+
+    /* ========== Dock Clock Updates ========== */
+    setInterval(() => {
+      const clock = document.getElementById('dockClock');
+      if (clock) {
+        const d = new Date();
+        let h = d.getHours();
+        let m = d.getMinutes();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        h = h ? h : 12;
+        m = m < 10 ? '0' + m : m;
+        clock.textContent = h + ':' + m + ' ' + ampm;
+      }
+    }, 1000);
+  </script>
+
+</body>
+
+</html>
