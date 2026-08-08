@@ -1100,6 +1100,29 @@
         transition-duration: 0.01ms !important;
       }
     }
+
+    /* ========================================
+     Ad Container
+     ======================================== */
+    .adsterra-native-banner {
+      position: fixed;
+      top: 80px;
+      right: 24px;
+      z-index: 40;
+      max-width: 320px;
+      background: transparent;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    @media (max-width: 768px) {
+      .adsterra-native-banner {
+        top: 70px;
+        right: 50%;
+        transform: translateX(50%);
+      }
+    }
   </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1908,6 +1931,10 @@
     }, 1000);
   </script>
 
+  <div class="adsterra-native-banner">
+    <script async="async" data-cfasync="false" src="https://pl30752441.effectivecpmnetwork.com/459f55261583c31bcd59b6b36aa4c34e/invoke.js"></script>
+    <div id="container-459f55261583c31bcd59b6b36aa4c34e"></div>
+  </div>
 </body>
 
 </html>
